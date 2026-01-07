@@ -1,102 +1,92 @@
 import struct
 import uuid
 import warnings
+from functools import singledispatch
+from typing import Literal
 
 import numpy as np
 from typing_extensions import Reader
+
+from .riff import DataChunk, FormChunk, ListChunk, RawChunk, parse_riff
 
 __all__ = [
     "parse_tpo",
 ]
 
+type _Scalar = int | float | np.datetime64 | bytes | str
 
-def parse_tpo_subchunk(fp: Reader[bytes]):
-    subchunk_id, subchunk_size = struct.unpack("<4sI", fp.read(8))
-    if subchunk_id.isascii():
-        subchunk_id = subchunk_id.decode("ascii")
-    match subchunk_id:
-        case "RIFF":
-            (form_type,) = struct.unpack("<4s", fp.read(4))
-            if form_type.isascii():
-                form_type = form_type.decode("ascii")
 
-            form_chunks = {}
-            offset = 12
-            while offset < subchunk_size:
-                key, size, data = parse_tpo_subchunk(fp)
-                offset += size + 8
-                assert key not in form_chunks
-                form_chunks[key] = data
-            return (subchunk_id, form_type), subchunk_size, form_chunks
-        case "LIST":
-            (list_type,) = struct.unpack("<4s", fp.read(4))
-            if list_type.isascii():
-                list_type = list_type.decode("ascii")
-            raise NotImplementedError((subchunk_id, subchunk_size, list_type))
-            # FIXME: untested, but should be correct
-            list_chunks = []
-            offset = 8
-            while offset < subchunk_size:
-                key, size, data = parse_tpo_subchunk(fp)
-                offset += size + 8
-                list_chunks.append((key, data))
-            return (subchunk_id, list_type), subchunk_size, list_chunks
+@singledispatch
+def _parse_tpo_subchunk(
+    chunk,
+) -> tuple[str | tuple[Literal["RIFF"], str], dict | np.ndarray[tuple[int], np.uint8] | _Scalar]:
+    raise TypeError
+
+
+@_parse_tpo_subchunk.register
+def _(chunk: FormChunk) -> tuple[tuple[Literal["RIFF"], str], dict]:
+    form = {}
+    for subchunk in chunk.value:
+        k, v = _parse_tpo_subchunk(subchunk)
+        if k in form:
+            raise ValueError(f"Duplicate subchunk id {k} in form {FormChunk}")
+        form[k] = v
+    return ("RIFF", chunk.form_type), form
+
+
+@_parse_tpo_subchunk.register
+def _(chunk: ListChunk):  # -> tuple[tuple[Literal["LIST"], str], list]:
+    raise NotImplementedError(f"'LIST' chunks are not yet implemented {chunk}")
+
+
+@_parse_tpo_subchunk.register
+def _(chunk: DataChunk) -> tuple[str, np.ndarray[tuple[int], np.uint8]]:
+    return chunk.chunk_id, chunk.value
+
+
+@_parse_tpo_subchunk.register
+def _(chunk: RawChunk) -> tuple[str, _Scalar]:
+    match chunk.chunk_id:
         case "NUM " | "OUT#" | "DASI" | "DOMN" | "COLM" | "RESO":
-            unpack_fmt = {
-                1: "<B",
-                2: "<H",
-                4: "<I",
-                8: "<Q",
-            }[subchunk_size]
-            (data,) = struct.unpack(unpack_fmt, fp.read(subchunk_size))
+            data = int.from_bytes(chunk.value, byteorder="little", signed=False)
         case "TIME":
-            assert subchunk_size == 8
+            assert len(chunk.value) == 8
             # https://www.tiepie.com/en/multi-channel/exporting-data#foot_1
-            (ts,) = struct.unpack("<d", fp.read(8))
+            (ts,) = struct.unpack("<d", chunk.value)
             if ts <= 50_000:
                 days_to_ns = 24 * 60 * 60 * 1_000_000_000
                 data = np.timedelta64(int(ts * days_to_ns), "ns") + np.datetime64("1899-12-30")
             else:
                 data = ts
         case "SAFR" | "SVAL":
-            assert subchunk_size == 8
-            (data,) = struct.unpack("<d", fp.read(8))
+            assert len(chunk.value) == 8
+            (data,) = struct.unpack("<d", chunk.value)
         case "NAME":
-            _data = fp.read(subchunk_size)
+            _data = chunk.value
             try:
                 data = _data.decode("utf-16-le")
             except UnicodeDecodeError:
                 data = _data
         case "CLID":
-            assert subchunk_size == 16
+            assert len(chunk.value) == 16
             # FIXME: is this actually a UUID?
-            data = uuid.UUID(int=int.from_bytes(fp.read(16), "little"))
+            data = uuid.UUID(int=int.from_bytes(chunk.value, "little"))
         case "BNDS":
-            assert subchunk_size == 16
-            data = struct.unpack("<dd", fp.read(subchunk_size))
-        case "DATA":
-            # data = np.frombuffer(fp, dtype=np.uint8, count=subchunk_size)
-            # data = np.frombuffer(fp.read(subchunk_size), dtype=np.uint8)
-            data = np.fromfile(fp, dtype=np.uint8, count=subchunk_size)
+            assert len(chunk.value) == 16
+            data = struct.unpack("<dd", chunk.value)
         case _:
-            data = fp.read(subchunk_size)
-            msg = f"unimplemented chunk id: {subchunk_id}, size: {subchunk_size}, data: {data[:128]}"
+            data = chunk.value
+            msg = f"unimplemented chunk id: {chunk.chunk_id}, size: {len(chunk.value)}, data: {data[:128]}"
             warnings.warn(msg, stacklevel=2)
-    return subchunk_id, subchunk_size, data
+    return chunk.chunk_id, data
 
 
 def parse_tpo(fp: Reader[bytes]) -> dict:
-    riff, fsize, fformat = struct.unpack("<4sI4s", fp.read(12))
-    if riff != b"RIFF":
-        raise ValueError(f"Invalid file signature, expected b'RIFF', but found {riff!r}")
-    elif fformat != b"MIMO":
-        raise ValueError(f"Invalid RIFF type, expected b'MIMO', but found {fformat!r}")
+    riff, _size = parse_riff(fp)
+    if riff.form_type != "MIMO":
+        raise ValueError(f"Invalid RIFF type, expected 'MIMO', but found {riff.form_type!r}")
 
-    chunks = {}
-    offset = 12
-    while offset < fsize:
-        key, size, data = parse_tpo_subchunk(fp)
-        offset += size + 8
-        assert key not in chunks
-        chunks[key] = data
+    _k, chunks = _parse_tpo_subchunk(riff)
+    assert _k == ("RIFF", "MIMO")
+    assert isinstance(chunks, dict)
     return chunks

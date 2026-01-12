@@ -19,15 +19,17 @@ type _Scalar = int | float | np.datetime64 | bytes | str
 @singledispatch
 def _parse_tpo_subchunk(
     chunk,
+    *,
+    warn=False,
 ) -> tuple[str | tuple[Literal["RIFF"], str], dict | np.ndarray[tuple[int], np.uint8] | _Scalar]:
     raise TypeError
 
 
 @_parse_tpo_subchunk.register
-def _(chunk: FormChunk) -> tuple[tuple[Literal["RIFF"], str], dict]:
+def _(chunk: FormChunk, *, warn: bool = False) -> tuple[tuple[Literal["RIFF"], str], dict]:
     form = {}
     for subchunk in chunk.value:
-        k, v = _parse_tpo_subchunk(subchunk)
+        k, v = _parse_tpo_subchunk(subchunk, warn=warn)
         if k in form:
             raise ValueError(f"Duplicate subchunk id {k} in form {FormChunk}")
         form[k] = v
@@ -35,17 +37,17 @@ def _(chunk: FormChunk) -> tuple[tuple[Literal["RIFF"], str], dict]:
 
 
 @_parse_tpo_subchunk.register
-def _(chunk: ListChunk):  # -> tuple[tuple[Literal["LIST"], str], list]:
+def _(chunk: ListChunk, *, warn: bool = False):  # -> tuple[tuple[Literal["LIST"], str], list]:
     raise NotImplementedError(f"'LIST' chunks are not yet implemented {chunk}")
 
 
 @_parse_tpo_subchunk.register
-def _(chunk: DataChunk) -> tuple[str, np.ndarray[tuple[int], np.uint8]]:
+def _(chunk: DataChunk, *, warn: bool = False) -> tuple[str, np.ndarray[tuple[int], np.uint8]]:
     return chunk.chunk_id, chunk.value
 
 
 @_parse_tpo_subchunk.register
-def _(chunk: RawChunk) -> tuple[str, _Scalar]:
+def _(chunk: RawChunk, *, warn: bool = False) -> tuple[str, _Scalar]:
     match chunk.chunk_id:
         case "NUM " | "OUT#" | "DASI" | "DOMN" | "COLM" | "RESO":
             data = int.from_bytes(chunk.value, byteorder="little", signed=False)
@@ -76,17 +78,18 @@ def _(chunk: RawChunk) -> tuple[str, _Scalar]:
             data = struct.unpack("<dd", chunk.value)
         case _:
             data = chunk.value
-            msg = f"unimplemented chunk id: {chunk.chunk_id}, size: {len(chunk.value)}, data: {data[:128]}"
-            warnings.warn(msg, stacklevel=2)
+            if warn:
+                msg = f"unimplemented chunk id: {chunk.chunk_id}, size: {len(chunk.value)}, data: {data[:128]}"
+                warnings.warn(msg, stacklevel=2)
     return chunk.chunk_id, data
 
 
-def parse_tpo(fp: Reader[bytes]) -> dict:
+def parse_tpo(fp: Reader[bytes], *, warn_unimplemented: bool = False) -> dict:
     riff, _size = parse_riff(fp)
     if riff.form_type != "MIMO":
         raise ValueError(f"Invalid RIFF type, expected 'MIMO', but found {riff.form_type!r}")
 
-    _k, chunks = _parse_tpo_subchunk(riff)
+    _k, chunks = _parse_tpo_subchunk(riff, warn=warn_unimplemented)
     assert _k == ("RIFF", "MIMO")
     assert isinstance(chunks, dict)
     return chunks

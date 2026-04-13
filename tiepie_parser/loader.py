@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 
-def load_tpo(
+def _load_tpo(
     tpo_path: str | PathLike,
 ) -> tuple[None, None, None, None, dict] | tuple[np.ndarray, np.datetime64, float, float, dict]:
     tpo_path = Path(tpo_path)
@@ -33,11 +33,17 @@ def load_tpo(
     count = src.pop("DASI")
     if count != len(data):
         wmsg = f"Expected {count} data points, but found {len(data)} in {tpo_path}"
-        warnings.warn(wmsg, stacklevel=2)
+        warnings.warn(wmsg, stacklevel=3)
     start_time = src.pop("TIME")
     sample_rate = src.pop("SAFR")
     sample_offset = src.pop("SVAL", 0.0)
     return data, start_time, sample_rate, sample_offset, raw_tpo
+
+
+def load_tpo(
+    tpo_path: str | PathLike,
+) -> tuple[None, None, None, None, dict] | tuple[np.ndarray, np.datetime64, float, float, dict]:
+    return _load_tpo(tpo_path)
 
 
 def load_tpidx(
@@ -61,7 +67,7 @@ def load_tpidx(
         assert len(children) == fcount, f"{len(children)} == {fcount}"
         assert set(range(fcount)) == set(children.values())
         datas, start_times, sample_rates, sample_offsets, raw_tpos = zip(
-            *[load_tpo(c) for c, _ in sorted(children.items(), key=lambda t: t[1])],
+            *[_load_tpo(c) for c, _ in sorted(children.items(), key=lambda t: t[1])],
             strict=True,
         )
         assert len(set(start_times)) == 1

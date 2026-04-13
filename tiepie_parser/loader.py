@@ -14,7 +14,7 @@ __all__ = [
 
 
 def _load_tpo(
-    tpo_path: str | PathLike,
+    tpo_path: str | PathLike, *, pad_missing: bool = True
 ) -> tuple[None, None, None, None, dict] | tuple[np.ndarray, np.datetime64, float, float, dict]:
     tpo_path = Path(tpo_path)
     with tpo_path.open("rb") as fp:
@@ -31,8 +31,13 @@ def _load_tpo(
     }[raw_dty]
     data = untyped_data.view(dty)
     count = src.pop("DASI")
-    if count != len(data):
-        wmsg = f"Expected {count} data points, but found {len(data)} in {tpo_path}"
+    if count > len(data):
+        wmsg = f"Missing data, expected {count} data points, but found {len(data)} in {tpo_path}"
+        warnings.warn(wmsg, stacklevel=3)
+        if pad_missing:
+            data = np.pad(data, (0, count - len(data)), constant_values=np.nan)
+    elif count < len(data):
+        wmsg = f"Excess data, expected {count} data points, but found {len(data)} in {tpo_path}"
         warnings.warn(wmsg, stacklevel=3)
     start_time = src.pop("TIME")
     sample_rate = src.pop("SAFR")
@@ -41,13 +46,13 @@ def _load_tpo(
 
 
 def load_tpo(
-    tpo_path: str | PathLike,
+    tpo_path: str | PathLike, *, pad_missing: bool = True
 ) -> tuple[None, None, None, None, dict] | tuple[np.ndarray, np.datetime64, float, float, dict]:
-    return _load_tpo(tpo_path)
+    return _load_tpo(tpo_path, pad_missing=pad_missing)
 
 
 def load_tpidx(
-    tpidx_path: str | PathLike,
+    tpidx_path: str | PathLike, *, pad_missing: bool = True
 ) -> dict[str, tuple[np.ndarray, np.datetime64, float, tuple[float, ...], dict]]:
     tpidx_path = Path(tpidx_path)
     parser = configparser.ConfigParser()
@@ -67,7 +72,7 @@ def load_tpidx(
         assert len(children) == fcount, f"{len(children)} == {fcount}"
         assert set(range(fcount)) == set(children.values())
         datas, start_times, sample_rates, sample_offsets, raw_tpos = zip(
-            *[_load_tpo(c) for c, _ in sorted(children.items(), key=lambda t: t[1])],
+            *[_load_tpo(c, pad_missing=pad_missing) for c, _ in sorted(children.items(), key=lambda t: t[1])],
             strict=True,
         )
         assert len(set(start_times)) == 1

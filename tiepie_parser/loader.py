@@ -79,7 +79,15 @@ def load_tpidx(
         assert len(set(sample_rates)) == 1
         (start_time,) = set(start_times)
         (sample_rate,) = set(sample_rates)
-        # FIXME: how to use `sample_offsets` during concatenation?
+        if sample_offsets[0] is not None and sample_offsets[0] != 0:
+            msg = f"The first sample offset {sample_offsets[0]} is not 0 for {k!r}"
+            warnings.warn(msg, stacklevel=2)
+        if sample_rate is not None and np.any(
+            np.diff([sample_rate * o for o in sample_offsets]) != [len(d) for d in datas[:-1]]
+        ):
+            # TODO: improve the message
+            msg = f"data doesn't match sample offsets, concatenation will be incorrect, for {k!r}"
+            warnings.warn(msg, stacklevel=2)
         if len(datas) == 1:
             (data,) = datas
         else:

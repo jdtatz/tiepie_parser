@@ -20,16 +20,21 @@ class DataCollection:
     values: np.ndarray
     start: np.datetime64
     sample_rate: float
-    sample_offsets: tuple[float, ...]
+    _sample_offsets: tuple[float, ...]
     raw_tpos: tuple[dict, ...]
 
-    def __iter__(self):
-        # TODO: deprecate
-        return iter((self.values, self.start, self.sample_rate, self.sample_offsets, self.raw_tpos))
+    @property
+    @warnings.deprecated("sample offsets are now verified and used internally")
+    def sample_offsets(self):
+        return self._sample_offsets
 
+    @warnings.deprecated("load_tpidx now returns a DataCollection, not a tuple")
+    def __iter__(self):
+        return iter((self.values, self.start, self.sample_rate, self._sample_offsets, self.raw_tpos))
+
+    @warnings.deprecated("load_tpidx now returns a DataCollection, not a tuple")
     def __getitem__(self, index):
-        # TODO: deprecate
-        return (self.values, self.start, self.sample_rate, self.sample_offsets, self.raw_tpos)[index]
+        return (self.values, self.start, self.sample_rate, self._sample_offsets, self.raw_tpos)[index]
 
 
 def _load_tpo(

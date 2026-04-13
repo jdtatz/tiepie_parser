@@ -1,5 +1,6 @@
 import configparser
 import warnings
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 
@@ -8,9 +9,27 @@ import numpy as np
 from .tpo import parse_tpo
 
 __all__ = [
+    "DataCollection",
     "load_tpidx",
     "load_tpo",
 ]
+
+
+@dataclass
+class DataCollection:
+    values: np.ndarray
+    start: np.datetime64
+    sample_rate: float
+    sample_offsets: tuple[float, ...]
+    raw_tpos: tuple[dict, ...]
+
+    def __iter__(self):
+        # TODO: deprecate
+        return iter((self.values, self.start, self.sample_rate, self.sample_offsets, self.raw_tpos))
+
+    def __getitem__(self, index):
+        # TODO: deprecate
+        return (self.values, self.start, self.sample_rate, self.sample_offsets, self.raw_tpos)[index]
 
 
 def _load_tpo(
@@ -51,9 +70,7 @@ def load_tpo(
     return _load_tpo(tpo_path, pad_missing=pad_missing)
 
 
-def load_tpidx(
-    tpidx_path: str | PathLike, *, pad_missing: bool = True
-) -> dict[str, tuple[np.ndarray, np.datetime64, float, tuple[float, ...], dict]]:
+def load_tpidx(tpidx_path: str | PathLike, *, pad_missing: bool = True) -> dict[str, DataCollection]:
     tpidx_path = Path(tpidx_path)
     parser = configparser.ConfigParser()
     with tpidx_path.open() as fp:
@@ -95,5 +112,5 @@ def load_tpidx(
         # TODO: should it raise an Exception or skip it?
         if data is None:
             continue
-        tpos[k] = data, start_time, sample_rate, sample_offsets, raw_tpos
+        tpos[k] = DataCollection(data, start_time, sample_rate, sample_offsets, raw_tpos)
     return tpos

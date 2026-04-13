@@ -21,7 +21,7 @@ class DataCollection:
     start: np.datetime64
     sample_rate: float
     _sample_offsets: tuple[float, ...] = field(repr=False)
-    raw_tpos: tuple[dict, ...]
+    raw_tpos: tuple[dict, ...] | None = None
 
     @property
     @warnings.deprecated("sample offsets are now verified and used internally")
@@ -75,7 +75,7 @@ def load_tpo(
     return _load_tpo(tpo_path, pad_missing=pad_missing)
 
 
-def load_tpidx(tpidx_path: str | PathLike, *, pad_missing: bool = True) -> dict[str, DataCollection]:
+def load_tpidx(tpidx_path: str | PathLike, *, pad_missing: bool = True, full: bool = True) -> dict[str, DataCollection]:
     tpidx_path = Path(tpidx_path)
     parser = configparser.ConfigParser()
     with tpidx_path.open() as fp:
@@ -117,5 +117,5 @@ def load_tpidx(tpidx_path: str | PathLike, *, pad_missing: bool = True) -> dict[
         # TODO: should it raise an Exception or skip it?
         if data is None:
             continue
-        tpos[k] = DataCollection(data, start_time, sample_rate, sample_offsets, raw_tpos)
+        tpos[k] = DataCollection(data, start_time, sample_rate, sample_offsets, raw_tpos if full else None)
     return tpos

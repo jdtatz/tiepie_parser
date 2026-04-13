@@ -45,7 +45,8 @@ def load_tpidx(
 ) -> dict[str, tuple[np.ndarray, np.datetime64, float, tuple[float, ...], dict]]:
     tpidx_path = Path(tpidx_path)
     parser = configparser.ConfigParser()
-    parser.read(tpidx_path)
+    with tpidx_path.open() as fp:
+        parser.read_file(fp, str(tpidx_path))
     tpos = {}
     for k, d in parser.items():
         if k == "DEFAULT":

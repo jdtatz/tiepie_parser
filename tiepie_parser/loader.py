@@ -1,6 +1,6 @@
 import configparser
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
 
@@ -20,7 +20,7 @@ class DataCollection:
     values: np.ndarray
     start: np.datetime64
     sample_rate: float
-    _sample_offsets: tuple[float, ...]
+    _sample_offsets: tuple[float, ...] = field(repr=False)
     raw_tpos: tuple[dict, ...]
 
     @property

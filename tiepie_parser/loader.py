@@ -91,8 +91,21 @@ def load_tpidx(tpidx_path: str | PathLike, *, pad_missing: bool = True, full: bo
         # samplefrequency = float(dd.pop("samplefrequency"))
         # print(k, fname, fcount, dd)
         children = {child: int(child.stem.removeprefix(fname)) for child in tpidx_path.parent.glob(f"{fname}*.tpo")}
-        assert len(children) == fcount, f"{len(children)} == {fcount}"
-        assert set(range(fcount)) == set(children.values())
+        if len(children) != fcount:
+            expected = set(range(fcount))
+            found = set(children.values())
+            unexpected = found - expected
+            # NOTE: can this even happen?
+            assert len(unexpected) == 0
+            missing = expected - found
+            # FIXME: does the padding ever vary?
+            missing_fs = [f"{fname}{i:06}.tpo" for i in sorted(missing)]
+            # TODO: optionally raise an error instead of a warning (use a kwarg called `strict: bool`?)
+            msg = f"Expected {fcount} {k!r} tpo files, found {len(children)} tpo files, missing {missing_fs!r}"
+            warnings.warn(msg, stacklevel=2)
+        else:
+            # NOTE: can this even happen?
+            assert set(range(fcount)) == set(children.values())
         datas, start_times, sample_rates, sample_offsets, raw_tpos = zip(
             *[_load_tpo(c, pad_missing=pad_missing) for c, _ in sorted(children.items(), key=lambda t: t[1])],
             strict=True,
